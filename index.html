@@ -242,6 +242,24 @@ button:disabled:active{transform:none;}
 }
 
 video,canvas{display:none;}
+
+/* SPREADSHEET */
+#panel-spreadsheet{flex-direction:column;gap:0;padding:0;overflow:hidden;}
+#ssTable th,#ssTable td{border-right:1px solid rgba(255,255,255,.04);}
+#ssTable th:last-child,#ssTable td:last-child{border-right:none;}
+.ss-row{transition:background .15s;}
+.ss-row:hover{background:rgba(255,255,255,.03);}
+.ss-row.selected{background:rgba(255,255,255,.07);}
+.ss-cell{padding:0;border-bottom:1px solid rgba(255,255,255,.04);}
+.ss-input{width:100%;background:transparent;border:none;color:var(--text);font-family:var(--f-mono);font-size:12px;padding:8px 10px;outline:none;transition:background .15s;}
+.ss-input:focus{background:rgba(255,255,255,.06);}
+.ss-status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;}
+.ss-status-ok{background:var(--ok);}
+.ss-status-miss{background:var(--err);}
+.ss-status-pend{background:var(--warn);}
+.ss-thumb{width:40px;height:28px;border-radius:4px;object-fit:cover;border:1px solid var(--border);background:rgba(255,255,255,.04);}
+.board-cell{width:52px;height:36px;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;font-family:var(--f-mono);color:var(--muted);cursor:default;transition:all .2s;}
+.board-cell.active{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4);color:var(--text);}
 </style>
 </head>
 <body>
@@ -323,6 +341,11 @@ video,canvas{display:none;}
       <div class="nav-icon">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
       </div>Config Output
+    </div>
+    <div class="nav-item" onclick="goPanel('spreadsheet',this)" data-panel="spreadsheet">
+      <div class="nav-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+      </div>Spreadsheet
     </div>
     <div class="nav-sec">Account</div>
     <div class="nav-item" onclick="goPanel('profile',this)" data-panel="profile">
@@ -546,6 +569,84 @@ video,canvas{display:none;}
             <button class="btn-danger ripple-container" onclick="logoutDiscord()" style="padding:8px 16px;font-size:12px">Sign Out</button>
           </div>
         </div>
+      </div>
+    </div>
+
+
+    <!-- SPREADSHEET PANEL -->
+    <div class="panel" id="panel-spreadsheet">
+      <div class="panel-bar" style="flex-wrap:wrap;gap:8px;padding:14px 22px 10px;">
+        <div class="panel-bar-title">Spreadsheet Manager</div>
+        <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <button class="btn-glass ripple-container" onclick="ssAddRow()" style="padding:5px 12px;font-size:11px;">+ Row</button>
+          <button class="btn-glass ripple-container" onclick="ssDeleteSelected()" style="padding:5px 12px;font-size:11px;">Delete Selected</button>
+          <button class="btn-glass ripple-container" onclick="ssClearAll()" style="padding:5px 12px;font-size:11px;">Clear All</button>
+          <button class="btn-glass ripple-container" onclick="ssImportCSV()" style="padding:5px 12px;font-size:11px;">Import CSV</button>
+          <button class="btn-glass ripple-container" onclick="ssExportCSV()" style="padding:5px 12px;font-size:11px;">Export CSV</button>
+          <button class="btn-primary ripple-container" onclick="ssExportLua()" style="padding:5px 14px;font-size:11px;">Export Lua</button>
+        </div>
+      </div>
+
+      <!-- GIF Preview bar -->
+      <div id="ssGifBar" style="background:rgba(0,0,0,.35);border-bottom:1px solid var(--border);padding:10px 22px;display:flex;align-items:center;gap:14px;flex-shrink:0;">
+        <span style="font-size:11px;color:var(--muted);font-family:var(--f-mono);">GIF Preview</span>
+        <div id="ssGifPreview" style="display:flex;align-items:center;gap:8px;flex:1;overflow-x:auto;">
+          <div style="font-size:11px;color:var(--dim);font-family:var(--f-mono);">Extract frames first, then they appear here</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          <span style="font-size:11px;color:var(--muted);font-family:var(--f-mono);">Speed:</span>
+          <input type="range" id="ssGifSpeed" min="50" max="2000" value="200" style="width:80px;accent-color:#fff;" oninput="ssUpdateGif()"/>
+          <span id="ssGifSpeedLabel" style="font-size:10px;color:var(--muted);font-family:var(--f-mono);width:50px;">200ms</span>
+          <button class="btn-glass ripple-container" onclick="ssToggleGif()" id="ssGifBtn" style="padding:4px 12px;font-size:11px;">▶ Play</button>
+        </div>
+      </div>
+
+      <!-- Board/Grid visual -->
+      <div style="background:rgba(0,0,0,.2);border-bottom:1px solid var(--border);padding:12px 22px;flex-shrink:0;">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <span style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--dim);text-transform:uppercase;">Board/Grid Layout</span>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <label style="font-size:11px;color:var(--muted);margin:0;">Cols</label>
+            <input type="number" id="ssBoardCols" value="2" min="1" max="10" style="width:52px;padding:4px 8px;font-size:12px;" oninput="ssRenderBoardGrid()"/>
+            <label style="font-size:11px;color:var(--muted);margin:0;">Rows</label>
+            <input type="number" id="ssBoardRows" value="2" min="1" max="10" style="width:52px;padding:4px 8px;font-size:12px;" oninput="ssRenderBoardGrid()"/>
+          </div>
+          <div id="ssBoardGrid" style="display:flex;gap:4px;flex-wrap:wrap;max-width:400px;"></div>
+          <div style="font-size:10px;color:var(--dim);font-family:var(--f-mono);" id="ssBoardNote"></div>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div style="flex:1;overflow:auto;padding:0;">
+        <table id="ssTable" style="width:100%;border-collapse:collapse;font-family:var(--f-mono);font-size:12px;">
+          <thead>
+            <tr style="background:rgba(255,255,255,.05);position:sticky;top:0;z-index:10;">
+              <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);width:32px;">
+                <input type="checkbox" id="ssSelectAll" onchange="ssToggleSelectAll(this.checked)" style="width:14px;height:14px;"/>
+              </th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">#</th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Frame Name</th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Asset ID</th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Board</th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Status</th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Preview</th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="ssTableBody">
+          </tbody>
+        </table>
+        <div id="ssEmpty" style="display:flex;flex-direction:column;align-items:center;padding:60px 0;gap:12px;color:var(--muted);">
+          <div style="font-size:28px;opacity:.18;">◈</div>
+          <div style="font-size:13px;">No rows yet — click "+ Row" or extract frames to populate</div>
+        </div>
+      </div>
+
+      <!-- Status bar -->
+      <div style="background:rgba(0,0,0,.3);border-top:1px solid var(--border);padding:8px 22px;display:flex;gap:16px;align-items:center;flex-shrink:0;">
+        <span style="font-size:11px;color:var(--muted);font-family:var(--f-mono);" id="ssStatusText">0 rows</span>
+        <span style="font-size:11px;color:var(--ok);font-family:var(--f-mono);" id="ssStatusUploaded">0 uploaded</span>
+        <span style="font-size:11px;color:var(--err);font-family:var(--f-mono);" id="ssStatusMissing">0 missing</span>
       </div>
     </div>
 
@@ -918,6 +1019,7 @@ async function startUpload(){
       frames[i].assetId=id;frames[i].status='ok';
       setFrameStatus(i,'ok');uploaded++;
       log('ok','Frame '+(i+1)+' → rbxassetid://'+id);
+      ssSyncFrame(i,id);
     }catch(err){
       frames[i].status='err';setFrameStatus(i,'err');failed++;
       log('err','Frame '+(i+1)+' FAILED: '+err.message);
@@ -928,6 +1030,7 @@ async function startUpload(){
         frames[i].assetId=id;frames[i].status='ok';
         setFrameStatus(i,'ok');uploaded++;failed--;
         log('ok','Retry OK → rbxassetid://'+id);
+        ssSyncFrame(i,id);
       }catch(e2){log('err','Retry failed: '+e2.message);}
     }
     document.getElementById('statUploaded').textContent=uploaded;
@@ -1087,6 +1190,12 @@ function stopMusicUpload(){musicStopFlag=true;log('warn','Music stop requested�
 function generateConfig(){
   document.getElementById('configEmpty').style.display='none';
   document.getElementById('configReady').style.display='flex';
+  // Sync spreadsheet dari frames terbaru
+  if (typeof ssInit === 'function') {
+    ssRows = [];
+    ssNextId = 1;
+    ssInit();
+  }
   regenerateConfig();
   goPanel('config',document.querySelector("[data-panel=config]"));
 }
@@ -1097,7 +1206,10 @@ function regenerateConfig(){
   const colsInput=parseInt(document.getElementById('cfgCols').value)||2;
   const rowsInput=parseInt(document.getElementById('cfgRows').value)||0;
   const boards=document.getElementById('boardsList').value.split('\n').map(s=>s.trim()).filter(Boolean);
-  const ok=frames.filter(f=>f.assetId);
+  // Prioritas: pakai ssRows kalau ada, fallback ke frames
+  const ok = (typeof ssRows !== 'undefined' && ssRows.length > 0)
+    ? ssRows.filter(r=>r.assetId).map(r=>({assetId:r.assetId}))
+    : frames.filter(f=>f.assetId);
 
   // Auto-hitung gridRows dari jumlah board dan gridCols
   const autoRows=Math.ceil((boards.length||4)/colsInput);
@@ -1188,6 +1300,370 @@ function log(type,msg){
     if(document.getElementById('configReady').style.display!=='none')regenerateConfig();
   });
 });
+
+// ── SPREADSHEET SYSTEM ──────────────────────────────────────
+// Data model: array of row objects
+// {id, name, assetId, board, status, thumbUrl}
+
+let ssRows = [];
+let ssNextId = 1;
+let ssGifPlaying = false;
+let ssGifTimer = null;
+let ssGifIndex = 0;
+
+// ----- SYNC: called after each frame upload to instantly update spreadsheet -----
+function ssSyncFrame(frameIndex, assetId) {
+  if (typeof frames === 'undefined') return;
+  const f = frames[frameIndex];
+  if (!f) return;
+  const name = 'Frame_' + String(frameIndex + 1).padStart(3, '0');
+  const aid  = String(assetId);
+  // Find existing row by frame index name
+  const existing = ssRows.find(r => r.name === name);
+  if (existing) {
+    existing.assetId = aid;
+    existing.status  = 'ok';
+    existing.thumbUrl = f.dataUrl || existing.thumbUrl;
+  } else {
+    ssRows.push({
+      id: ssNextId++,
+      name: name,
+      assetId: aid,
+      board: '',
+      status: 'ok',
+      thumbUrl: f.dataUrl || ''
+    });
+  }
+  // Live update table jika panel spreadsheet sedang terbuka
+  const panel = document.getElementById('panel-spreadsheet');
+  if (panel && panel.classList.contains('active')) {
+    ssRenderTable();
+    ssUpdateStatus();
+  }
+}
+
+// ----- INIT: populate from existing frames when panel opens -----
+function ssInit() {
+  // Merge existing uploaded frames into spreadsheet rows
+  // (frames array from VS Publisher)
+  if (typeof frames !== 'undefined' && frames.length > 0) {
+    const existing = new Set(ssRows.map(r => r.assetId).filter(Boolean));
+    frames.forEach((f, i) => {
+      const aid = f.assetId ? String(f.assetId) : '';
+      if (aid && existing.has(aid)) return; // already present
+      ssRows.push({
+        id: ssNextId++,
+        name: 'Frame_' + String(i + 1).padStart(3, '0'),
+        assetId: aid,
+        board: '',
+        status: aid ? 'ok' : 'missing',
+        thumbUrl: f.dataUrl || ''
+      });
+    });
+  }
+  ssRenderTable();
+  ssRenderGifPreview();
+  ssRenderBoardGrid();
+  ssUpdateStatus();
+}
+
+// Called by goPanel — hook into navigation
+const _origGoPanel = goPanel;
+function goPanel(name, el) {
+  _origGoPanel(name, el);
+  if (name === 'spreadsheet') {
+    setTimeout(ssInit, 50);
+  }
+}
+
+// ----- TABLE RENDER -----
+function ssRenderTable() {
+  const tbody = document.getElementById('ssTableBody');
+  const empty = document.getElementById('ssEmpty');
+  if (!ssRows.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'flex';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = ssRows.map((row, idx) => `
+    <tr class="ss-row ${row._sel ? 'selected' : ''}" id="ssrow-${row.id}">
+      <td class="ss-cell" style="padding:8px 10px;width:32px;">
+        <input type="checkbox" ${row._sel ? 'checked' : ''} onchange="ssToggleRow(${row.id}, this.checked)" style="width:14px;height:14px;"/>
+      </td>
+      <td class="ss-cell" style="padding:8px 10px;color:var(--dim);width:36px;">${idx + 1}</td>
+      <td class="ss-cell">
+        <input class="ss-input" value="${escHtml(row.name)}" placeholder="Frame name" onchange="ssSetField(${row.id},'name',this.value)" oninput="ssSetField(${row.id},'name',this.value)"/>
+      </td>
+      <td class="ss-cell">
+        <input class="ss-input" value="${escHtml(row.assetId)}" placeholder="rbxassetid://..." onchange="ssSetAsset(${row.id},this.value)" oninput="ssSetAsset(${row.id},this.value)" style="color:${row.assetId ? 'var(--ok)' : 'var(--muted)'}"/>
+      </td>
+      <td class="ss-cell">
+        <input class="ss-input" value="${escHtml(row.board)}" placeholder="Board_1" onchange="ssSetField(${row.id},'board',this.value)" oninput="ssSetField(${row.id},'board',this.value)"/>
+      </td>
+      <td class="ss-cell" style="padding:8px 10px;white-space:nowrap;">
+        <span class="ss-status-dot ${row.status==='ok'?'ss-status-ok':row.status==='missing'?'ss-status-miss':'ss-status-pend'}"></span>
+        <span style="font-size:11px;color:var(--muted);">${row.status}</span>
+      </td>
+      <td class="ss-cell" style="padding:6px 10px;">
+        ${row.thumbUrl ? `<img class="ss-thumb" src="${row.thumbUrl}" alt=""/>` : '<div class="ss-thumb" style="display:inline-block;"></div>'}
+      </td>
+      <td class="ss-cell" style="padding:6px 10px;white-space:nowrap;">
+        <button class="btn-glass" onclick="ssMoveUp(${row.id})" style="padding:3px 8px;font-size:11px;">↑</button>
+        <button class="btn-glass" onclick="ssMoveDown(${row.id})" style="padding:3px 8px;font-size:11px;margin-left:3px;">↓</button>
+        <button class="btn-danger" onclick="ssDeleteRow(${row.id})" style="padding:3px 8px;font-size:11px;margin-left:3px;width:auto;">✕</button>
+      </td>
+    </tr>
+  `).join('');
+  ssUpdateStatus();
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ----- ROW OPERATIONS -----
+function ssAddRow() {
+  ssRows.push({ id: ssNextId++, name: 'Frame_' + String(ssRows.length + 1).padStart(3, '0'), assetId: '', board: '', status: 'missing', thumbUrl: '' });
+  ssRenderTable();
+}
+
+function ssDeleteRow(id) {
+  ssRows = ssRows.filter(r => r.id !== id);
+  ssRenderTable();
+}
+
+function ssDeleteSelected() {
+  ssRows = ssRows.filter(r => !r._sel);
+  document.getElementById('ssSelectAll').checked = false;
+  ssRenderTable();
+}
+
+function ssClearAll() {
+  if (!confirm('Clear all rows?')) return;
+  ssRows = [];
+  ssNextId = 1;
+  ssRenderTable();
+  ssRenderGifPreview();
+  ssRenderBoardGrid();
+}
+
+function ssSetField(id, field, val) {
+  const row = ssRows.find(r => r.id === id);
+  if (row) { row[field] = val; ssUpdateStatus(); ssRenderBoardGrid(); }
+}
+
+function ssSetAsset(id, val) {
+  const row = ssRows.find(r => r.id === id);
+  if (!row) return;
+  row.assetId = val.trim();
+  row.status = row.assetId ? 'ok' : 'missing';
+  ssUpdateStatus();
+  // Update cell color
+  const el = document.querySelector(`#ssrow-${id} input[placeholder*="rbxassetid"]`);
+  if (el) el.style.color = row.assetId ? 'var(--ok)' : 'var(--muted)';
+}
+
+function ssMoveUp(id) {
+  const i = ssRows.findIndex(r => r.id === id);
+  if (i > 0) { [ssRows[i-1], ssRows[i]] = [ssRows[i], ssRows[i-1]]; ssRenderTable(); }
+}
+
+function ssMoveDown(id) {
+  const i = ssRows.findIndex(r => r.id === id);
+  if (i < ssRows.length - 1) { [ssRows[i], ssRows[i+1]] = [ssRows[i+1], ssRows[i]]; ssRenderTable(); }
+}
+
+function ssToggleRow(id, checked) {
+  const row = ssRows.find(r => r.id === id);
+  if (row) row._sel = checked;
+}
+
+function ssToggleSelectAll(checked) {
+  ssRows.forEach(r => r._sel = checked);
+  ssRenderTable();
+}
+
+function ssUpdateStatus() {
+  const ok = ssRows.filter(r => r.assetId).length;
+  const miss = ssRows.filter(r => !r.assetId).length;
+  const t = document.getElementById('ssStatusText');
+  const tu = document.getElementById('ssStatusUploaded');
+  const tm = document.getElementById('ssStatusMissing');
+  if(t) t.textContent = ssRows.length + ' rows';
+  if(tu) tu.textContent = ok + ' uploaded';
+  if(tm) tm.textContent = miss + ' missing';
+}
+
+// ----- GIF PREVIEW -----
+function ssRenderGifPreview() {
+  const container = document.getElementById('ssGifPreview');
+  if (!container) return;
+  const thumbs = ssRows.filter(r => r.thumbUrl);
+  if (!thumbs.length) {
+    container.innerHTML = '<div style="font-size:11px;color:var(--dim);font-family:var(--f-mono);">Extract frames first, then they appear here</div>';
+    return;
+  }
+  // Show a single preview img that animates
+  container.innerHTML = `<img id="ssGifImg" src="${thumbs[0].thumbUrl}" style="height:54px;border-radius:6px;border:1px solid var(--border);"/>
+    <span style="font-size:10px;color:var(--muted);font-family:var(--f-mono);">${thumbs.length} frames</span>`;
+}
+
+function ssToggleGif() {
+  const thumbs = ssRows.filter(r => r.thumbUrl);
+  if (!thumbs.length) return;
+  const btn = document.getElementById('ssGifBtn');
+  if (ssGifPlaying) {
+    clearInterval(ssGifTimer);
+    ssGifPlaying = false;
+    if(btn) btn.textContent = '▶ Play';
+  } else {
+    const speed = parseInt(document.getElementById('ssGifSpeed').value) || 200;
+    ssGifTimer = setInterval(() => {
+      const img = document.getElementById('ssGifImg');
+      if (!img) { clearInterval(ssGifTimer); return; }
+      ssGifIndex = (ssGifIndex + 1) % thumbs.length;
+      img.src = thumbs[ssGifIndex].thumbUrl;
+    }, speed);
+    ssGifPlaying = true;
+    if(btn) btn.textContent = '⏹ Stop';
+  }
+}
+
+function ssUpdateGif() {
+  const val = parseInt(document.getElementById('ssGifSpeed').value) || 200;
+  const label = document.getElementById('ssGifSpeedLabel');
+  if (label) label.textContent = val + 'ms';
+  if (ssGifPlaying) {
+    // Restart with new speed
+    clearInterval(ssGifTimer);
+    ssGifPlaying = false;
+    ssToggleGif();
+  }
+}
+
+// ----- BOARD/GRID -----
+function ssRenderBoardGrid() {
+  const cols = parseInt(document.getElementById('ssBoardCols').value) || 2;
+  const rows = parseInt(document.getElementById('ssBoardRows').value) || 2;
+  const boards = [...new Set(ssRows.map(r=>r.board).filter(Boolean))];
+  const total = cols * rows;
+  const grid = document.getElementById('ssBoardGrid');
+  const note = document.getElementById('ssBoardNote');
+  if (!grid) return;
+
+  let html = '<div style="display:grid;grid-template-columns:repeat('+cols+',52px);gap:4px;">';
+  for (let i = 0; i < total; i++) {
+    const label = boards[i] || (i + 1);
+    const active = i < boards.length;
+    html += `<div class="board-cell ${active?'active':''}" title="${active?boards[i]:'empty'}">${typeof label==='number'?'B'+label:label.replace('Board_','B')}</div>`;
+  }
+  html += '</div>';
+  grid.innerHTML = html;
+
+  const diff = boards.length - total;
+  if (note) {
+    if (diff > 0) note.textContent = '⚠ ' + diff + ' board(s) exceed grid slots';
+    else if (diff < 0) note.textContent = (total - boards.length) + ' slot(s) empty';
+    else if (boards.length > 0) note.textContent = '✓ Grid fits perfectly';
+    else note.textContent = '';
+  }
+}
+
+// ----- IMPORT/EXPORT -----
+function ssImportCSV() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.csv,text/csv';
+  inp.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const lines = ev.target.result.split(/\r?\n/).filter(Boolean);
+      const header = lines[0].toLowerCase().split(',');
+      const nameIdx = header.findIndex(h=>h.includes('name'));
+      const assetIdx = header.findIndex(h=>h.includes('asset'));
+      const boardIdx = header.findIndex(h=>h.includes('board'));
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',');
+        ssRows.push({
+          id: ssNextId++,
+          name: nameIdx>=0 ? cols[nameIdx].trim() : ('Row_'+i),
+          assetId: assetIdx>=0 ? cols[assetIdx].trim() : '',
+          board: boardIdx>=0 ? cols[boardIdx].trim() : '',
+          status: (assetIdx>=0 && cols[assetIdx].trim()) ? 'ok' : 'missing',
+          thumbUrl: ''
+        });
+      }
+      ssRenderTable();
+      ssRenderBoardGrid();
+      log('ok', 'Imported ' + (lines.length-1) + ' rows from CSV');
+    };
+    reader.readAsText(file);
+  };
+  inp.click();
+}
+
+function ssExportCSV() {
+  const rows = [['Frame Name','Asset ID','Board','Status']].concat(
+    ssRows.map(r=>[r.name, r.assetId, r.board, r.status])
+  );
+  const csv = rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='spreadsheet.csv'; a.click();
+  log('ok','CSV exported — '+ssRows.length+' rows');
+}
+
+function ssExportLua() {
+  const name = document.getElementById('configName')?.value.trim() || 'Visual_01';
+  const fps = document.getElementById('fps')?.value || '24';
+  const loop = document.getElementById('configLoop')?.value || 'true';
+  const cols = document.getElementById('ssBoardCols')?.value || '2';
+  const rows = document.getElementById('ssBoardRows')?.value || '2';
+  const boards = [...new Set(ssRows.map(r=>r.board).filter(Boolean))];
+  const uploaded = ssRows.filter(r=>r.assetId);
+
+  const framesStr = uploaded.length > 0
+    ? uploaded.map((r,i)=>'        "rbxassetid://'+r.assetId+'",  -- '+r.name).join('\n')
+    : '        -- No frames uploaded yet';
+  const boardsStr = boards.length > 0
+    ? boards.map(b=>'        "'+b+'",').join('\n')
+    : '        "Board_1","Board_2","Board_3","Board_4",';
+
+  const lua =
+'-- ModuleScript: ReplicatedStorage.MA_Visual.Configs.'+name+'\n'+
+'-- Generated by MA Studio Spreadsheet Manager\n'+
+'-- Frames: '+uploaded.length+' | FPS: '+fps+' | Loop: '+loop+'\n'+
+'return {\n'+
+'    name     = "'+name+'",\n'+
+'    fps      = '+fps+',\n'+
+'    loop     = '+loop+',\n'+
+'    gridCols = '+cols+',\n'+
+'    gridRows = '+rows+',\n\n'+
+'    boards = {\n'+boardsStr+'\n    },\n\n'+
+'    frames = {\n'+framesStr+'\n    },\n}';
+
+  const blob = new Blob([lua], {type:'text/plain'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name+'.lua'; a.click();
+  log('ok','Lua config exported — '+uploaded.length+' frames, '+boards.length+' boards');
+}
+
+// Hook: when frames are uploaded, auto-sync to spreadsheet
+const _origUploadComplete = typeof stopUpload !== 'undefined' ? stopUpload : null;
+// Simpler: after goPanel to spreadsheet always re-init, already done above.
+
+// Also expose ssRefreshFromFrames for manual refresh
+function ssRefreshFromFrames() {
+  ssRows = [];
+  ssNextId = 1;
+  ssInit();
+  ssRenderTable();
+  ssRenderGifPreview();
+  ssRenderBoardGrid();
+  log('ok', 'Spreadsheet refreshed from frames');
+}
+
 </script>
 </body>
 </html>
