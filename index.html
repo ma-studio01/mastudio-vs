@@ -96,7 +96,9 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
 .nav-item:hover,.nav-item:active{background:var(--surface);color:var(--text);border-color:rgba(255,255,255,.06);}
 .nav-item.active{background:linear-gradient(90deg,rgba(255,255,255,.14),rgba(255,255,255,.04));border-color:rgba(255,255,255,.25);color:var(--text);}
 .nav-item.active::before{opacity:1;}
-.nav-icon{width:28px;height:28px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;background:rgba(255,255,255,.05);transition:background .2s;}
+.nav-icon{width:28px;height:28px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;background:rgba(255,255,255,.05);transition:background .2s;pointer-events:none;}
+.nav-item *{pointer-events:none;}
+.nav-item{pointer-events:auto;}
 .nav-item.active .nav-icon{background:rgba(255,255,255,.2);}
 .nav-badge{margin-left:auto;font-family:var(--f-mono);font-size:10px;color:var(--dim);background:rgba(255,255,255,.06);padding:1px 6px;border-radius:6px;}
 .sidebar-foot{margin-top:auto;padding:16px 8px 4px;display:flex;justify-content:center;border-top:1px solid var(--border);}
@@ -877,10 +879,15 @@ function startLoading(){
 
 // ── NAV ─────────────────────────────────────────────────────
 function goPanel(name,el){
+  // Pastikan el = nav-item yang benar, bukan child element
+  const navEl = el ? (el.closest('.nav-item') || el) : document.querySelector('[data-panel="'+name+'"]');
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById('panel-'+name).classList.add('active');
+  if(navEl) navEl.classList.add('active');
+  const panel = document.getElementById('panel-'+name);
+  if(panel) panel.classList.add('active');
+  // Hook spreadsheet init
+  if(name==='spreadsheet') setTimeout(ssInit,50);
 }
 
 // ── VIDEO LOAD ───────────────────────────────────────────────
@@ -1367,14 +1374,7 @@ function ssInit() {
   ssUpdateStatus();
 }
 
-// Called by goPanel — hook into navigation
-const _origGoPanel = goPanel;
-function goPanel(name, el) {
-  _origGoPanel(name, el);
-  if (name === 'spreadsheet') {
-    setTimeout(ssInit, 50);
-  }
-}
+// goPanel hook merged into main function
 
 // ----- TABLE RENDER -----
 function ssRenderTable() {
@@ -1650,7 +1650,7 @@ function ssExportLua() {
 }
 
 // Hook: when frames are uploaded, auto-sync to spreadsheet
-const _origUploadComplete = typeof stopUpload !== 'undefined' ? stopUpload : null;
+// upload complete hook handled via ssSyncFrame
 // Simpler: after goPanel to spreadsheet always re-init, already done above.
 
 // Also expose ssRefreshFromFrames for manual refresh
