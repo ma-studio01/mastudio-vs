@@ -1137,7 +1137,11 @@ async function uploadAsset(blob,assetType,name,apiKey,creatorType,creatorId,ext)
   const res=await fetch(WORKER_URL+'/proxy/assets/v1/assets',{method:'POST',headers:{'x-api-key':apiKey},body:fd});
   if(!res.ok){const t=await res.text();throw new Error('HTTP '+res.status+': '+t);}
   const data=await res.json();
-  if(data.assetId)return data.assetId;
+  if(data.assetId){
+    // Dapat assetId langsung — ambil texture ID
+    const textureId = await getTextureId(data.assetId, apiKey);
+    return textureId || data.assetId;
+  }
   if(data.operationId||data.path){
     const opId=data.operationId||data.path.split('/').pop();
     return await pollOperation(opId,apiKey);
@@ -1151,11 +1155,52 @@ async function pollOperation(opId,apiKey){
     if(!res.ok)throw new Error('Poll HTTP '+res.status);
     const d=await res.json();
     if(d.done){
-      if(d.response&&d.response.assetId)return d.response.assetId;
+      if(d.response&&d.response.assetId){
+        const assetId = d.response.assetId;
+        // Fetch texture ID dari asset ID
+        const textureId = await getTextureId(assetId, apiKey);
+        return textureId || assetId;
+      }
       if(d.error)throw new Error((d.error.message)||'Op failed');
     }
   }
   throw new Error('Operation timeout');
+}
+
+// Ambil texture ID dari asset ID
+// Cara: GET https://apis.roblox.com/assets/v1/assets/{assetId}
+// Response: { assetType, imageUri: "rbxassetid://TEXTURE_ID" }
+async function getTextureId(assetId, apiKey){
+  try {
+    // Coba via Open Cloud API dulu
+    const res = await fetch(WORKER_URL+'/proxy/assets/v1/assets/'+assetId, {
+      headers: {'x-api-key': apiKey}
+    });
+    if(res.ok){
+      const d = await res.json();
+      if(d.imageUri){
+        // imageUri = "rbxassetid://12345" atau "https://..."
+        const match = d.imageUri.match(/([0-9]{5,})/);
+        if(match) return match[1];
+      }
+    }
+    // Fallback: coba Roblox asset delivery API (no auth needed)
+    // GET https://assetdelivery.roblox.com/v2/assetid/{assetId}
+    const res2 = await fetch('https://assetdelivery.roblox.com/v2/assetid/'+assetId);
+    if(res2.ok){
+      const d2 = await res2.json();
+      // locations[0].location biasanya URL ke CDN
+      // requestId biasanya adalah texture ID
+      if(d2.requestId){
+        return d2.requestId;
+      }
+    }
+    // Fallback terakhir: pakai assetId itu sendiri
+    return assetId;
+  } catch(e){
+    console.warn('getTextureId failed:', e);
+    return assetId; // fallback ke assetId
+  }
 }
 
 // ── MUSIC UPLOAD ─────────────────────────────────────────────
