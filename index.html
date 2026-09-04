@@ -688,7 +688,7 @@ video,canvas{display:none;}
               </th>
               <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">#</th>
               <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Frame Name</th>
-              <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Asset ID</th>
+              <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Texture ID</th>
               <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Board</th>
               <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Status</th>
               <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:9px;letter-spacing:1.5px;font-weight:700;text-transform:uppercase;">Preview</th>
@@ -1095,7 +1095,7 @@ async function startUpload(){
       const id=await uploadAsset(frames[i].blob,'Decal',fname,apiKey,creatorType,creatorId);
       frames[i].assetId=id;frames[i].status='ok';
       setFrameStatus(i,'ok');uploaded++;
-      log('ok','Frame '+(i+1)+' → rbxassetid://'+id);
+      log('ok','Frame '+(i+1)+' → texture rbxassetid://'+id);
       ssSyncFrame(i,id);
     }catch(err){
       frames[i].status='err';setFrameStatus(i,'err');failed++;
@@ -1106,7 +1106,7 @@ async function startUpload(){
         const id=await uploadAsset(frames[i].blob,'Decal',fname,apiKey,creatorType,creatorId);
         frames[i].assetId=id;frames[i].status='ok';
         setFrameStatus(i,'ok');uploaded++;failed--;
-        log('ok','Retry OK → rbxassetid://'+id);
+        log('ok','Retry OK → texture rbxassetid://'+id);
         ssSyncFrame(i,id);
       }catch(e2){log('err','Retry failed: '+e2.message);}
     }
@@ -1167,40 +1167,56 @@ async function pollOperation(opId,apiKey){
   throw new Error('Operation timeout');
 }
 
-// Ambil texture ID dari asset ID
-// Cara: GET https://apis.roblox.com/assets/v1/assets/{assetId}
-// Response: { assetType, imageUri: "rbxassetid://TEXTURE_ID" }
+// Ambil texture ID dari Decal assetId
+// Decal assetId ≠ texture ID — Decal adalah wrapper, texture adalah gambar aslinya
+//
+// CARA 1 (paling reliable): economy.roblox.com/v2/assets/{id}/details
+//   → field TargetId = texture ID resmi dari Roblox
+//   → public endpoint, tidak butuh API key
+//
+// CARA 2 (fallback): Open Cloud /assets/v1/assets/{id}
+//   → field imageUri = "rbxassetid://TEXTURE_ID"
+//   → butuh API key, tapi imageUri kadang kosong kalau asset baru selesai proses
+//
+// FALLBACK: pakai assetId sendiri (berarti gagal resolve)
 async function getTextureId(assetId, apiKey){
+  // ── CARA 1: Economy API (TargetId) ──────────────────────────────────────────
+  // economy.roblox.com/v2/assets/{id}/details → { TargetId: TEXTURE_ID, ... }
+  // Public endpoint — worker route: /proxy/economy/ → economy.roblox.com
   try {
-    // Coba via Open Cloud API dulu
-    const res = await fetch(WORKER_URL+'/proxy/assets/v1/assets/'+assetId, {
+    const r1 = await fetch(WORKER_URL+'/proxy/economy/v2/assets/'+assetId+'/details');
+    if(r1.ok){
+      const d1 = await r1.json();
+      const tid = d1.TargetId;
+      if(tid && String(tid) !== String(assetId)){
+        log('ok','✓ Texture ID [economy]: '+assetId+' → '+tid);
+        return String(tid);
+      }
+    }
+  } catch(e){ console.warn('[getTextureId] cara 1 gagal:', e); }
+
+  // ── CARA 2: Open Cloud imageUri ─────────────────────────────────────────
+  // apis.roblox.com/assets/v1/assets/{id} → { imageUri: "rbxassetid://TEXTURE_ID" }
+  // Butuh API key. imageUri bisa kosong kalau asset masih processing.
+  try {
+    const r2 = await fetch(WORKER_URL+'/proxy/assets/v1/assets/'+assetId, {
       headers: {'x-api-key': apiKey}
     });
-    if(res.ok){
-      const d = await res.json();
-      if(d.imageUri){
-        // imageUri = "rbxassetid://12345" atau "https://..."
-        const match = d.imageUri.match(/([0-9]{5,})/);
-        if(match) return match[1];
+    if(r2.ok){
+      const d2 = await r2.json();
+      if(d2.imageUri){
+        const m = d2.imageUri.match(/([0-9]{7,})/);
+        if(m && m[1] !== String(assetId)){
+          log('ok','✓ Texture ID [imageUri]: '+assetId+' → '+m[1]);
+          return m[1];
+        }
       }
     }
-    // Fallback: coba Roblox asset delivery API (no auth needed)
-    // GET https://assetdelivery.roblox.com/v2/assetid/{assetId}
-    const res2 = await fetch('https://assetdelivery.roblox.com/v2/assetid/'+assetId);
-    if(res2.ok){
-      const d2 = await res2.json();
-      // locations[0].location biasanya URL ke CDN
-      // requestId biasanya adalah texture ID
-      if(d2.requestId){
-        return d2.requestId;
-      }
-    }
-    // Fallback terakhir: pakai assetId itu sendiri
-    return assetId;
-  } catch(e){
-    console.warn('getTextureId failed:', e);
-    return assetId; // fallback ke assetId
-  }
+  } catch(e){ console.warn('[getTextureId] cara 2 gagal:', e); }
+
+  // ── FALLBACK ─────────────────────────────────────────────────────
+  log('warn','⚠ getTextureId gagal resolve '+assetId+' — pakai assetId (bukan texture ID!)');
+  return String(assetId);
 }
 
 // ── MUSIC UPLOAD ─────────────────────────────────────────────
@@ -1511,7 +1527,7 @@ function ssRenderTable() {
         <input class="ss-input" value="${escHtml(row.name)}" placeholder="Frame name" onchange="ssSetField(${row.id},'name',this.value)" oninput="ssSetField(${row.id},'name',this.value)"/>
       </td>
       <td class="ss-cell">
-        <input class="ss-input" value="${escHtml(row.assetId)}" placeholder="rbxassetid://..." onchange="ssSetAsset(${row.id},this.value)" oninput="ssSetAsset(${row.id},this.value)" style="color:${row.assetId ? 'var(--ok)' : 'var(--muted)'}"/>
+        <input class="ss-input" value="${escHtml(row.assetId)}" placeholder="Texture ID..." onchange="ssSetAsset(${row.id},this.value)" oninput="ssSetAsset(${row.id},this.value)" style="color:${row.assetId ? 'var(--ok)' : 'var(--muted)'}"/>
       </td>
       <td class="ss-cell">
         <input class="ss-input" value="${escHtml(row.board)}" placeholder="Board_1" onchange="ssSetField(${row.id},'board',this.value)" oninput="ssSetField(${row.id},'board',this.value)"/>
@@ -1698,7 +1714,7 @@ function ssImportCSV() {
       const lines = ev.target.result.split(/\r?\n/).filter(Boolean);
       const header = lines[0].toLowerCase().split(',');
       const nameIdx = header.findIndex(h=>h.includes('name'));
-      const assetIdx = header.findIndex(h=>h.includes('asset'));
+      const assetIdx = header.findIndex(h=>h.includes('texture')||h.includes('asset'));
       const boardIdx = header.findIndex(h=>h.includes('board'));
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(',');
@@ -1721,7 +1737,7 @@ function ssImportCSV() {
 }
 
 function ssExportCSV() {
-  const rows = [['Frame Name','Asset ID','Board','Status']].concat(
+  const rows = [['Frame Name','Texture ID','Board','Status']].concat(
     ssRows.map(r=>[r.name, r.assetId, r.board, r.status])
   );
   const csv = rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
