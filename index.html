@@ -1170,49 +1170,68 @@ async function pollOperation(opId,apiKey){
 // Ambil texture ID dari Decal assetId
 // Decal assetId ≠ texture ID — Decal adalah wrapper, texture adalah gambar aslinya
 //
-// CARA 1 (paling reliable): economy.roblox.com/v2/assets/{id}/details
-//   → field TargetId = texture ID resmi dari Roblox
-//   → public endpoint, tidak butuh API key
-//
-// CARA 2 (fallback): Open Cloud /assets/v1/assets/{id}
-//   → field imageUri = "rbxassetid://TEXTURE_ID"
-//   → butuh API key, tapi imageUri kadang kosong kalau asset baru selesai proses
-//
-// FALLBACK: pakai assetId sendiri (berarti gagal resolve)
+// STRATEGI:
+//   1. Retry GET /assets/v1/assets/{id} sampai imageUri muncul (asset butuh waktu proses)
+//   2. Thumbnails API — return imageUrl CDN yang mengandung texture ID di path
+//   3. Fallback assetId (gagal)
 async function getTextureId(assetId, apiKey){
-  // ── CARA 1: Economy API (TargetId) ──────────────────────────────────────────
-  // economy.roblox.com/v2/assets/{id}/details → { TargetId: TEXTURE_ID, ... }
-  // Public endpoint — worker route: /proxy/economy/ → economy.roblox.com
-  try {
-    const r1 = await fetch(WORKER_URL+'/proxy/economy/v2/assets/'+assetId+'/details');
-    if(r1.ok){
-      const d1 = await r1.json();
-      const tid = d1.TargetId;
-      if(tid && String(tid) !== String(assetId)){
-        log('ok','✓ Texture ID [economy]: '+assetId+' → '+tid);
-        return String(tid);
-      }
-    }
-  } catch(e){ console.warn('[getTextureId] cara 1 gagal:', e); }
-
-  // ── CARA 2: Open Cloud imageUri ─────────────────────────────────────────
+  // ── CARA 1: Open Cloud imageUri dengan RETRY LOOP ──────────────────────
   // apis.roblox.com/assets/v1/assets/{id} → { imageUri: "rbxassetid://TEXTURE_ID" }
-  // Butuh API key. imageUri bisa kosong kalau asset masih processing.
+  // imageUri kosong saat asset masih diproses Roblox — perlu retry beberapa detik
+  for(let attempt = 0; attempt < 6; attempt++){
+    try {
+      if(attempt > 0) await sleep(2000); // tunggu 2s per retry (max ~10s total)
+      const r1 = await fetch(WORKER_URL+'/proxy/assets/v1/assets/'+assetId, {
+        headers: {'x-api-key': apiKey}
+      });
+      if(r1.ok){
+        const d1 = await r1.json();
+        if(d1.imageUri){
+          const m = d1.imageUri.match(/([0-9]{7,})/);
+          if(m && m[1] !== String(assetId)){
+            log('ok','✓ Texture ID: '+assetId+' → '+m[1]+' (attempt '+(attempt+1)+')');
+            return m[1];
+          }
+        }
+        // imageUri belum ada — asset masih processing, lanjut retry
+        if(attempt < 5) log('info','... waiting asset processing ('+assetId+') attempt '+(attempt+1)+'/6');
+      } else {
+        // HTTP error — tidak perlu retry
+        const txt = await r1.text().catch(()=>'');
+        console.warn('[getTextureId] HTTP '+r1.status, txt);
+        break;
+      }
+    } catch(e){
+      console.warn('[getTextureId] attempt '+(attempt+1)+' error:', e);
+    }
+  }
+
+  // ── CARA 2: Thumbnails API ──────────────────────────────────────────
+  // thumbnails.roblox.com/v1/assets?assetIds={id}&size=420x420&format=Png
+  // → { data: [{ targetId, imageUrl }] }
+  // targetId dari sini = texture ID asli
   try {
-    const r2 = await fetch(WORKER_URL+'/proxy/assets/v1/assets/'+assetId, {
-      headers: {'x-api-key': apiKey}
-    });
+    const r2 = await fetch(WORKER_URL+'/proxy/thumbnails/v1/assets?assetIds='+assetId+'&size=420x420&format=Png');
     if(r2.ok){
       const d2 = await r2.json();
-      if(d2.imageUri){
-        const m = d2.imageUri.match(/([0-9]{7,})/);
-        if(m && m[1] !== String(assetId)){
-          log('ok','✓ Texture ID [imageUri]: '+assetId+' → '+m[1]);
-          return m[1];
+      if(d2.data && d2.data[0]){
+        const item = d2.data[0];
+        // targetId di response thumbnails = texture ID untuk Decal
+        if(item.targetId && String(item.targetId) !== String(assetId)){
+          log('ok','✓ Texture ID [thumb.targetId]: '+assetId+' → '+item.targetId);
+          return String(item.targetId);
+        }
+        // Alternatif: extract dari imageUrl path jika ada
+        if(item.imageUrl){
+          const mu = item.imageUrl.match(/\/([0-9]{7,})\//);
+          if(mu && mu[1] !== String(assetId)){
+            log('ok','✓ Texture ID [thumb.imageUrl]: '+assetId+' → '+mu[1]);
+            return mu[1];
+          }
         }
       }
     }
-  } catch(e){ console.warn('[getTextureId] cara 2 gagal:', e); }
+  } catch(e){ console.warn('[getTextureId] thumbnails gagal:', e); }
 
   // ── FALLBACK ─────────────────────────────────────────────────────
   log('warn','⚠ getTextureId gagal resolve '+assetId+' — pakai assetId (bukan texture ID!)');
