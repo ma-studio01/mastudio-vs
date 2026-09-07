@@ -1128,15 +1128,6 @@ function stopUpload(){stopFlag=true;log('warn','Stop requested…');}
 
 // ── UPLOAD GENERIC ASSET ─────────────────────────────────────
 async function uploadAsset(blob,assetType,name,apiKey,creatorType,creatorId,ext){
-  if(assetType==='Decal'){
-    // Upload Decal (masuk library) + Image (dapat texture ID) secara paralel
-    const [_decalId, textureId] = await Promise.all([
-      _singleUpload(blob,'Decal',name,apiKey,creatorType,creatorId,ext),
-      _singleUpload(blob,'Image',name,apiKey,creatorType,creatorId,ext),
-    ]);
-    // Image assetId = texture ID yang dipakai di Decal.Texture
-    return textureId;
-  }
   return _singleUpload(blob,assetType,name,apiKey,creatorType,creatorId,ext);
 }
 async function _singleUpload(blob,assetType,name,apiKey,creatorType,creatorId,ext){
@@ -1164,7 +1155,10 @@ async function pollOperation(opId,apiKey){
     const d=await res.json();
     if(d.done){
       if(d.error)throw new Error((d.error.message)||'Op failed');
-      if(d.response&&d.response.assetId) return String(d.response.assetId);
+      if(d.response){
+        log('info','[op.response] '+JSON.stringify(d.response).slice(0,400));
+        if(d.response.assetId) return String(d.response.assetId);
+      }
     }
   }
   throw new Error('Operation timeout');
