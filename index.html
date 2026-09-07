@@ -1128,11 +1128,23 @@ function stopUpload(){stopFlag=true;log('warn','Stop requested…');}
 
 // ── UPLOAD GENERIC ASSET ─────────────────────────────────────
 async function uploadAsset(blob,assetType,name,apiKey,creatorType,creatorId,ext){
+  if(assetType==='Decal'){
+    // Upload Decal (masuk library) + Image (dapat texture ID) secara paralel
+    const [_decalId, textureId] = await Promise.all([
+      _singleUpload(blob,'Decal',name,apiKey,creatorType,creatorId,ext),
+      _singleUpload(blob,'Image',name,apiKey,creatorType,creatorId,ext),
+    ]);
+    // Image assetId = texture ID yang dipakai di Decal.Texture
+    return textureId;
+  }
+  return _singleUpload(blob,assetType,name,apiKey,creatorType,creatorId,ext);
+}
+async function _singleUpload(blob,assetType,name,apiKey,creatorType,creatorId,ext){
   const fd=new FormData();
   const req={assetType,displayName:name,description:'MA Studio Tools',
     creationContext:{creator:creatorType==='Group'?{groupId:parseInt(creatorId)}:{userId:parseInt(creatorId)}}};
   fd.append('request',JSON.stringify(req));
-  const filename=name+(ext||(assetType==='Audio'?'.mp3':'.jpg'));
+  const filename=name+(ext||(assetType==='Audio'?'.mp3':assetType==='Image'?'.png':'.jpg'));
   fd.append('fileContent',blob,filename);
   const res=await fetch(WORKER_URL+'/proxy/assets/v1/assets',{method:'POST',headers:{'x-api-key':apiKey},body:fd});
   if(!res.ok){const t=await res.text();throw new Error('HTTP '+res.status+': '+t);}
@@ -1145,8 +1157,6 @@ async function uploadAsset(blob,assetType,name,apiKey,creatorType,creatorId,ext)
   throw new Error('Unexpected response');
 }
 async function pollOperation(opId,apiKey){
-  // Step 1: tunggu operation selesai → dapat decalAssetId
-  let decalAssetId = null;
   for(let i=0;i<30;i++){
     await sleep(1500);
     const res=await fetch(WORKER_URL+'/proxy/assets/v1/operations/'+opId,{headers:{'x-api-key':apiKey}});
@@ -1154,31 +1164,10 @@ async function pollOperation(opId,apiKey){
     const d=await res.json();
     if(d.done){
       if(d.error)throw new Error((d.error.message)||'Op failed');
-      if(d.response&&d.response.assetId){ decalAssetId=String(d.response.assetId); break; }
+      if(d.response&&d.response.assetId) return String(d.response.assetId);
     }
   }
-  if(!decalAssetId)throw new Error('Operation timeout');
-
-  // Step 2: fetch langsung dari browser ke economy.roblox.com
-  // Browser sudah punya cookie Roblox — tidak perlu input apapun
-  // economy.roblox.com/v2/assets/{id}/details → { TargetId: TEXTURE_ID }
-  try{
-    const r=await fetch('https://economy.roblox.com/v2/assets/'+decalAssetId+'/details',{
-      credentials:'include'
-    });
-    const txt=await r.text();
-    log('info','[economy] '+txt.slice(0,200));
-    if(r.ok){
-      const a=JSON.parse(txt);
-      if(a.TargetId&&String(a.TargetId)!==decalAssetId){
-        log('ok','✓ Texture ID: '+decalAssetId+' → '+a.TargetId);
-        return String(a.TargetId);
-      }
-    }
-  }catch(e){log('warn','[economy] error: '+e.message);}
-
-  log('warn','⚠ Texture ID tidak ditemukan, pakai Decal ID: '+decalAssetId);
-  return decalAssetId;
+  throw new Error('Operation timeout');
 }
 
 // Ambil texture ID dari Decal assetId
