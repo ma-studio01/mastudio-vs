@@ -1092,7 +1092,7 @@ async function startUpload(){
     log('info','Uploading frame '+(i+1)+'/'+frames.length+'…');
     const fname=vname+'_frame_'+String(i+1).padStart(4,'0');
     try{
-      const id=await uploadAsset(frames[i].blob,'Decal',fname,apiKey,creatorType,creatorId);
+      const id=await uploadAsset(frames[i].blob,'Image',fname,apiKey,creatorType,creatorId);
       frames[i].assetId=id;frames[i].status='ok';
       setFrameStatus(i,'ok');uploaded++;
       log('ok','Frame '+(i+1)+' → texture rbxassetid://'+id);
@@ -1103,7 +1103,7 @@ async function startUpload(){
       await sleep(2000);
       try{
         log('warn','Retrying frame '+(i+1)+'…');
-        const id=await uploadAsset(frames[i].blob,'Decal',fname,apiKey,creatorType,creatorId);
+        const id=await uploadAsset(frames[i].blob,'Image',fname,apiKey,creatorType,creatorId);
         frames[i].assetId=id;frames[i].status='ok';
         setFrameStatus(i,'ok');uploaded++;failed--;
         log('ok','Retry OK → texture rbxassetid://'+id);
@@ -1132,16 +1132,14 @@ async function uploadAsset(blob,assetType,name,apiKey,creatorType,creatorId,ext)
   const req={assetType,displayName:name,description:'MA Studio Tools',
     creationContext:{creator:creatorType==='Group'?{groupId:parseInt(creatorId)}:{userId:parseInt(creatorId)}}};
   fd.append('request',JSON.stringify(req));
-  const filename=name+(ext||( assetType==='Audio'?'.mp3':'.jpg'));
+  // Image upload → .png untuk kualitas lebih baik
+  const filename=name+(ext||(assetType==='Audio'?'.mp3':assetType==='Image'?'.png':'.jpg'));
   fd.append('fileContent',blob,filename);
   const res=await fetch(WORKER_URL+'/proxy/assets/v1/assets',{method:'POST',headers:{'x-api-key':apiKey},body:fd});
   if(!res.ok){const t=await res.text();throw new Error('HTTP '+res.status+': '+t);}
   const data=await res.json();
-  if(data.assetId){
-    // Dapat assetId langsung — ambil texture ID
-    const textureId = await getTextureId(data.assetId, apiKey);
-    return textureId || data.assetId;
-  }
+  // Upload Image: assetId yang balik LANGSUNG = texture ID (tidak perlu resolve)
+  if(data.assetId) return String(data.assetId);
   if(data.operationId||data.path){
     const opId=data.operationId||data.path.split('/').pop();
     return await pollOperation(opId,apiKey);
@@ -1155,12 +1153,8 @@ async function pollOperation(opId,apiKey){
     if(!res.ok)throw new Error('Poll HTTP '+res.status);
     const d=await res.json();
     if(d.done){
-      if(d.response&&d.response.assetId){
-        const assetId = d.response.assetId;
-        // Fetch texture ID dari asset ID
-        const textureId = await getTextureId(assetId, apiKey);
-        return textureId || assetId;
-      }
+      // Image: assetId dari operation = texture ID langsung
+      if(d.response&&d.response.assetId) return String(d.response.assetId);
       if(d.error)throw new Error((d.error.message)||'Op failed');
     }
   }
