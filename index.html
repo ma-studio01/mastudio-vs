@@ -1159,28 +1159,35 @@ async function pollOperation(opId,apiKey){
   }
   if(!decalAssetId)throw new Error('Operation timeout');
 
-  // Step 2: GET /assets/v1/assets/{decalAssetId} → ambil imageUri = texture ID
-  // Roblox butuh beberapa detik setelah done untuk populate imageUri
-  for(let attempt=0;attempt<8;attempt++){
-    if(attempt>0)await sleep(2000);
-    try{
-      const r=await fetch(WORKER_URL+'/proxy/assets/v1/assets/'+decalAssetId,{headers:{'x-api-key':apiKey}});
-      if(r.ok){
-        const a=await r.json();
-        console.log('[getDecalTexture] attempt '+(attempt+1)+' response:',JSON.stringify(a));
-        if(a.imageUri){
-          const m=a.imageUri.match(/([0-9]{7,})/);
-          // Texture ID pasti berbeda dari Decal asset ID
-          if(m&&m[1]!==decalAssetId){
-            log('ok','✓ Texture ID: '+decalAssetId+' → '+m[1]);
-            return m[1];
-          }
+  // Step 2: assetdelivery.roblox.com/v1/assetId/{decalId}
+  // Endpoint public ini return { assetId: TEXTURE_ID } untuk Decal
+  // assetId di sini = texture ID, bukan Decal ID
+  try{
+    const r=await fetch(WORKER_URL+'/proxy/assetdelivery/v1/assetId/'+decalAssetId);
+    if(r.ok){
+      const a=await r.json();
+      log('info','[assetdelivery] response: '+JSON.stringify(a).slice(0,300));
+      // locations[0].assetId atau requestId = texture ID
+      if(a.assetId&&String(a.assetId)!==decalAssetId){
+        log('ok','✓ Texture ID: '+decalAssetId+' → '+a.assetId);
+        return String(a.assetId);
+      }
+      // Coba requestId
+      if(a.requestId&&String(a.requestId)!==decalAssetId){
+        log('ok','✓ Texture ID [requestId]: '+decalAssetId+' → '+a.requestId);
+        return String(a.requestId);
+      }
+      // Coba locations[0]
+      if(a.locations&&a.locations[0]){
+        const loc=a.locations[0];
+        if(loc.assetId&&String(loc.assetId)!==decalAssetId){
+          log('ok','✓ Texture ID [loc]: '+decalAssetId+' → '+loc.assetId);
+          return String(loc.assetId);
         }
       }
-    }catch(e){console.warn('[getDecalTexture] attempt '+(attempt+1)+' error:',e);}
-  }
+    }
+  }catch(e){console.warn('[getDecalTexture] assetdelivery error:',e);}
 
-  // Fallback: kalau imageUri tidak muncul setelah 16 detik, pakai decalAssetId
   log('warn','⚠ Texture ID tidak ditemukan, pakai Decal ID: '+decalAssetId);
   return decalAssetId;
 }
