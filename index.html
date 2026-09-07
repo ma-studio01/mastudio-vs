@@ -1128,6 +1128,15 @@ function stopUpload(){stopFlag=true;log('warn','Stop requested…');}
 
 // ── UPLOAD GENERIC ASSET ─────────────────────────────────────
 async function uploadAsset(blob,assetType,name,apiKey,creatorType,creatorId,ext){
+  if(assetType==='Decal'){
+    // Upload Decal (masuk library) + Image (dapat texture ID) secara paralel
+    const [_decalId, textureId] = await Promise.all([
+      _singleUpload(blob,'Decal',name,apiKey,creatorType,creatorId,ext),
+      _singleUpload(blob,'Image',name,apiKey,creatorType,creatorId,ext),
+    ]);
+    // Image assetId = texture ID yang dipakai di Decal.Texture
+    return textureId;
+  }
   return _singleUpload(blob,assetType,name,apiKey,creatorType,creatorId,ext);
 }
 async function _singleUpload(blob,assetType,name,apiKey,creatorType,creatorId,ext){
@@ -1148,8 +1157,6 @@ async function _singleUpload(blob,assetType,name,apiKey,creatorType,creatorId,ex
   throw new Error('Unexpected response');
 }
 async function pollOperation(opId,apiKey){
-  // Tunggu operation selesai → dapat decalAssetId
-  let decalAssetId=null;
   for(let i=0;i<30;i++){
     await sleep(1500);
     const res=await fetch(WORKER_URL+'/proxy/assets/v1/operations/'+opId,{headers:{'x-api-key':apiKey}});
@@ -1157,40 +1164,10 @@ async function pollOperation(opId,apiKey){
     const d=await res.json();
     if(d.done){
       if(d.error)throw new Error((d.error.message)||'Op failed');
-      if(d.response&&d.response.assetId){decalAssetId=String(d.response.assetId);break;}
+      if(d.response&&d.response.assetId) return String(d.response.assetId);
     }
   }
-  if(!decalAssetId)throw new Error('Operation timeout');
-
-  // GET /assets/v1/assets/{decalId} → cari imageAssetId (texture ID auto-generated Roblox)
-  for(let attempt=0;attempt<10;attempt++){
-    if(attempt>0)await sleep(2000);
-    try{
-      const r=await fetch(WORKER_URL+'/proxy/assets/v1/assets/'+decalAssetId,{headers:{'x-api-key':apiKey}});
-      if(r.ok){
-        const a=await r.json();
-        // Log semua field supaya ketahuan nama field texture ID
-        if(attempt===0)log('info','[asset fields] '+Object.keys(a).join(', '));
-        // Cek berbagai kemungkinan field nama texture/image ID
-        const tid=a.imageAssetId||a.textureAssetId||a.linkedAssetId||a.targetAssetId;
-        if(tid&&String(tid)!==decalAssetId){
-          log('ok','✓ Texture ID: '+decalAssetId+' → '+tid);
-          return String(tid);
-        }
-        // Cek imageUri
-        if(a.imageUri){
-          const m=a.imageUri.match(/([0-9]{7,})/);
-          if(m&&m[1]!==decalAssetId){
-            log('ok','✓ Texture ID [uri]: '+decalAssetId+' → '+m[1]);
-            return m[1];
-          }
-        }
-      }
-    }catch(e){log('warn','[asset] err: '+e.message);}
-  }
-  // Fallback
-  log('warn','⚠ Pakai Decal ID: '+decalAssetId);
-  return decalAssetId;
+  throw new Error('Operation timeout');
 }
 
 // Ambil texture ID dari Decal assetId
