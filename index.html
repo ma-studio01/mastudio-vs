@@ -1145,6 +1145,8 @@ async function uploadAsset(blob,assetType,name,apiKey,creatorType,creatorId,ext)
   throw new Error('Unexpected response');
 }
 async function pollOperation(opId,apiKey){
+  // Step 1: tunggu operation selesai → dapat decalAssetId
+  let decalAssetId = null;
   for(let i=0;i<30;i++){
     await sleep(1500);
     const res=await fetch(WORKER_URL+'/proxy/assets/v1/operations/'+opId,{headers:{'x-api-key':apiKey}});
@@ -1152,20 +1154,35 @@ async function pollOperation(opId,apiKey){
     const d=await res.json();
     if(d.done){
       if(d.error)throw new Error((d.error.message)||'Op failed');
-      if(d.response){
-        // Log raw response supaya bisa lihat semua field
-        console.log('[pollOperation] raw response:', JSON.stringify(d.response));
-        // imageUri = "rbxassetid://TEXTURE_ID" — texture ID asli dari Decal
-        if(d.response.imageUri){
-          const m = d.response.imageUri.match(/([0-9]{7,})/);
-          if(m){ log('ok','Texture ID dari imageUri: '+m[1]); return m[1]; }
-        }
-        // Fallback: assetId (ini Decal ID, bukan texture ID)
-        if(d.response.assetId) return String(d.response.assetId);
-      }
+      if(d.response&&d.response.assetId){ decalAssetId=String(d.response.assetId); break; }
     }
   }
-  throw new Error('Operation timeout');
+  if(!decalAssetId)throw new Error('Operation timeout');
+
+  // Step 2: GET /assets/v1/assets/{decalAssetId} → ambil imageUri = texture ID
+  // Roblox butuh beberapa detik setelah done untuk populate imageUri
+  for(let attempt=0;attempt<8;attempt++){
+    if(attempt>0)await sleep(2000);
+    try{
+      const r=await fetch(WORKER_URL+'/proxy/assets/v1/assets/'+decalAssetId,{headers:{'x-api-key':apiKey}});
+      if(r.ok){
+        const a=await r.json();
+        console.log('[getDecalTexture] attempt '+(attempt+1)+' response:',JSON.stringify(a));
+        if(a.imageUri){
+          const m=a.imageUri.match(/([0-9]{7,})/);
+          // Texture ID pasti berbeda dari Decal asset ID
+          if(m&&m[1]!==decalAssetId){
+            log('ok','✓ Texture ID: '+decalAssetId+' → '+m[1]);
+            return m[1];
+          }
+        }
+      }
+    }catch(e){console.warn('[getDecalTexture] attempt '+(attempt+1)+' error:',e);}
+  }
+
+  // Fallback: kalau imageUri tidak muncul setelah 16 detik, pakai decalAssetId
+  log('warn','⚠ Texture ID tidak ditemukan, pakai Decal ID: '+decalAssetId);
+  return decalAssetId;
 }
 
 // Ambil texture ID dari Decal assetId
