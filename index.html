@@ -1127,29 +1127,12 @@ async function startUpload(){
 function stopUpload(){stopFlag=true;log('warn','Stop requested…');}
 
 // ── UPLOAD GENERIC ASSET ─────────────────────────────────────
-// Upload asset ke Roblox Open Cloud
-// Untuk Decal: upload paralel Decal + Image
-//   - Decal → masuk library Decals (untuk koleksi)
-//   - Image → dapat texture ID langsung (untuk dipakai di game)
-// Return: texture ID (Image assetId)
 async function uploadAsset(blob,assetType,name,apiKey,creatorType,creatorId,ext){
-  if(assetType==='Decal'){
-    // Upload Decal + Image paralel
-    const [decalId, textureId] = await Promise.all([
-      _doUpload(blob,'Decal',name,apiKey,creatorType,creatorId,ext),
-      _doUpload(blob,'Image',name,apiKey,creatorType,creatorId,ext),
-    ]);
-    log('info','Decal: '+decalId+' | Texture: '+textureId);
-    return textureId; // pakai texture ID untuk visual
-  }
-  return _doUpload(blob,assetType,name,apiKey,creatorType,creatorId,ext);
-}
-async function _doUpload(blob,assetType,name,apiKey,creatorType,creatorId,ext){
   const fd=new FormData();
   const req={assetType,displayName:name,description:'MA Studio Tools',
     creationContext:{creator:creatorType==='Group'?{groupId:parseInt(creatorId)}:{userId:parseInt(creatorId)}}};
   fd.append('request',JSON.stringify(req));
-  const filename=name+(ext||(assetType==='Audio'?'.mp3':assetType==='Image'?'.png':'.jpg'));
+  const filename=name+(ext||(assetType==='Audio'?'.mp3':'.jpg'));
   fd.append('fileContent',blob,filename);
   const res=await fetch(WORKER_URL+'/proxy/assets/v1/assets',{method:'POST',headers:{'x-api-key':apiKey},body:fd});
   if(!res.ok){const t=await res.text();throw new Error('HTTP '+res.status+': '+t);}
@@ -1168,8 +1151,18 @@ async function pollOperation(opId,apiKey){
     if(!res.ok)throw new Error('Poll HTTP '+res.status);
     const d=await res.json();
     if(d.done){
-      if(d.response&&d.response.assetId) return String(d.response.assetId);
       if(d.error)throw new Error((d.error.message)||'Op failed');
+      if(d.response){
+        // Log raw response supaya bisa lihat semua field
+        console.log('[pollOperation] raw response:', JSON.stringify(d.response));
+        // imageUri = "rbxassetid://TEXTURE_ID" — texture ID asli dari Decal
+        if(d.response.imageUri){
+          const m = d.response.imageUri.match(/([0-9]{7,})/);
+          if(m){ log('ok','Texture ID dari imageUri: '+m[1]); return m[1]; }
+        }
+        // Fallback: assetId (ini Decal ID, bukan texture ID)
+        if(d.response.assetId) return String(d.response.assetId);
+      }
     }
   }
   throw new Error('Operation timeout');
