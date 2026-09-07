@@ -1159,34 +1159,23 @@ async function pollOperation(opId,apiKey){
   }
   if(!decalAssetId)throw new Error('Operation timeout');
 
-  // Step 2: assetdelivery.roblox.com/v1/assetId/{decalId}
-  // Endpoint public ini return { assetId: TEXTURE_ID } untuk Decal
-  // assetId di sini = texture ID, bukan Decal ID
+  // Step 2: fetch langsung dari browser ke economy.roblox.com
+  // Browser sudah punya cookie Roblox — tidak perlu input apapun
+  // economy.roblox.com/v2/assets/{id}/details → { TargetId: TEXTURE_ID }
   try{
-    const r=await fetch(WORKER_URL+'/proxy/assetdelivery/v1/assetId/'+decalAssetId);
+    const r=await fetch('https://economy.roblox.com/v2/assets/'+decalAssetId+'/details',{
+      credentials:'include'
+    });
+    const txt=await r.text();
+    log('info','[economy] '+txt.slice(0,200));
     if(r.ok){
-      const a=await r.json();
-      log('info','[assetdelivery] response: '+JSON.stringify(a).slice(0,300));
-      // locations[0].assetId atau requestId = texture ID
-      if(a.assetId&&String(a.assetId)!==decalAssetId){
-        log('ok','✓ Texture ID: '+decalAssetId+' → '+a.assetId);
-        return String(a.assetId);
-      }
-      // Coba requestId
-      if(a.requestId&&String(a.requestId)!==decalAssetId){
-        log('ok','✓ Texture ID [requestId]: '+decalAssetId+' → '+a.requestId);
-        return String(a.requestId);
-      }
-      // Coba locations[0]
-      if(a.locations&&a.locations[0]){
-        const loc=a.locations[0];
-        if(loc.assetId&&String(loc.assetId)!==decalAssetId){
-          log('ok','✓ Texture ID [loc]: '+decalAssetId+' → '+loc.assetId);
-          return String(loc.assetId);
-        }
+      const a=JSON.parse(txt);
+      if(a.TargetId&&String(a.TargetId)!==decalAssetId){
+        log('ok','✓ Texture ID: '+decalAssetId+' → '+a.TargetId);
+        return String(a.TargetId);
       }
     }
-  }catch(e){console.warn('[getDecalTexture] assetdelivery error:',e);}
+  }catch(e){log('warn','[economy] error: '+e.message);}
 
   log('warn','⚠ Texture ID tidak ditemukan, pakai Decal ID: '+decalAssetId);
   return decalAssetId;
